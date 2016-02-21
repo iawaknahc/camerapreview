@@ -6,7 +6,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
 import android.support.v7.app.AppCompatActivity;
-import android.view.Gravity;
+import android.util.DisplayMetrics;
 import android.view.OrientationEventListener;
 import android.view.View;
 import android.view.ViewGroup;
@@ -15,16 +15,13 @@ import android.widget.FrameLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import com.github.iawaknahc.camerapreview.AspectRatio;
 import com.github.iawaknahc.camerapreview.CameraPreviewView;
 import com.github.iawaknahc.camerapreview.CameraUtil;
-import com.github.iawaknahc.camerapreview.SmallestPictureSizePicker;
-import com.github.iawaknahc.camerapreview.StrictCameraPreviewMeasurer;
+import com.github.iawaknahc.camerapreview.DeviceUtil;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.util.LinkedHashSet;
 
 public class CameraActivity
         extends AppCompatActivity
@@ -41,19 +38,12 @@ public class CameraActivity
     private Camera camera;
     private int cameraId;
     private OrientationEventListener orientationEventListener;
-    private LinkedHashSet<AspectRatio> requiredAspectRatios;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
         setContentView(R.layout.activity_camera);
-
-        requiredAspectRatios = new LinkedHashSet<>();
-
-        requiredAspectRatios.add(AspectRatio._4_3);
-        requiredAspectRatios.add(AspectRatio._16_9);
-        requiredAspectRatios.add(AspectRatio._3_2);
 
         cameraPreviewViewContainer = (ViewGroup) findViewById(R.id.camera_preview_view_container);
         cameraRotationTextView = (TextView) findViewById(R.id.camera_rotation_text_view);
@@ -79,7 +69,7 @@ public class CameraActivity
         if (camera == null) {
             return;
         }
-        final int rotation = CameraUtil.onOrientationChanged(cameraId, orientation);
+        final int rotation = CameraUtil.calculateCameraRotation(cameraId, orientation);
         if (rotation == OrientationEventListener.ORIENTATION_UNKNOWN) {
             return;
         }
@@ -121,19 +111,15 @@ public class CameraActivity
         cameraPreviewView = new CameraPreviewView(
                 this,
                 cameraId,
-                camera,
-                requiredAspectRatios,
-                new StrictCameraPreviewMeasurer(this, cameraId, camera),
-                new SmallestPictureSizePicker(camera)
+                camera
         );
-
+        DisplayMetrics displayMetrics = DeviceUtil.getDisplayMetrics(this);
         FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                Gravity.CENTER
+                displayMetrics.widthPixels,
+                displayMetrics.widthPixels
         );
         cameraPreviewView.setLayoutParams(layoutParams);
-
+        cameraPreviewView.initialize();
         cameraPreviewViewContainer.addView(cameraPreviewView);
     }
 

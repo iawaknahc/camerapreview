@@ -1,59 +1,85 @@
 package com.github.iawaknahc.camerapreview;
 
 import android.content.Context;
+import android.graphics.SurfaceTexture;
 import android.hardware.Camera;
 import android.util.Log;
 import android.view.OrientationEventListener;
-import android.view.SurfaceHolder;
-import android.view.SurfaceView;
+import android.view.TextureView;
+import android.view.ViewGroup;
 
 import java.io.IOException;
-import java.util.LinkedHashSet;
 
-public class CameraPreviewView extends SurfaceView implements SurfaceHolder.Callback {
+public class CameraPreviewView extends ViewGroup implements TextureView.SurfaceTextureListener {
 
     private static final String TAG = "CameraPreviewView";
 
-    private final int cameraId;
-    private final Camera camera;
-    private final OrientationEventListener orientationEventListener;
-    private final LinkedHashSet<AspectRatio> requiredAspectRatios;
-    private final CameraPreviewMeasurer cameraPreviewMeasurer;
-    private final PictureSizePicker pictureSizePicker;
-    private boolean isSurfaceCreated;
-    private boolean isMeasuredAtLeastOnce;
-    private boolean isPreviewStarted;
+    private int cameraId;
+    private Camera camera;
+    private OrientationEventListener orientationEventListener;
+    private TextureView textureView;
 
     public CameraPreviewView(
             Context context,
             int cameraId,
-            Camera camera,
-            LinkedHashSet<AspectRatio> requiredAspectRatios,
-            CameraPreviewMeasurer cameraPreviewMeasurer,
-            PictureSizePicker pictureSizePicker) {
+            Camera camera) {
         super(context);
         this.cameraId = cameraId;
         this.camera = camera;
-        this.requiredAspectRatios = requiredAspectRatios;
-        this.cameraPreviewMeasurer = cameraPreviewMeasurer;
-        this.pictureSizePicker = pictureSizePicker;
-        orientationEventListener = new OrientationEventListener(context) {
-            @Override
-            public void onOrientationChanged(int orientation) {
-                handleOnOrientationChanged(orientation);
-            }
-        };
-        getHolder().addCallback(this);
     }
 
-    private void handleOnOrientationChanged(int orientation) {
-        final int rotation = CameraUtil.onOrientationChanged(cameraId, orientation);
-        if (rotation == OrientationEventListener.ORIENTATION_UNKNOWN) {
-            return;
-        }
+    public void initialize() {
+        initializeOrientationEventListener();
+        initializeTextureView();
+        initializeCameraPreviewSizeAndPictureSize();
+    }
+
+    private void initializeOrientationEventListener() {
+        this.orientationEventListener = new OrientationEventListener(getContext()) {
+            @Override
+            public void onOrientationChanged(int orientation) {
+                CameraUtil.handleOnOrientationChanged(
+                        CameraPreviewView.this.cameraId,
+                        CameraPreviewView.this.camera,
+                        orientation
+                );
+            }
+        };
+    }
+
+    private void initializeTextureView() {
+        textureView = new TextureView(getContext());
+        textureView.setSurfaceTextureListener(this);
+        addView(textureView);
+    }
+
+    private void initializeCameraPreviewSizeAndPictureSize() {
+        // set initial camera rotation and display orientation
+        int currentDeviceOrientation = DeviceUtil.getDeviceCurrentOrientation(getContext());
+        CameraUtil.handleOnOrientationChanged(cameraId, camera, currentDeviceOrientation);
+
+        // set preview size
+        Size viewSize = Size.fromLayoutParams(getLayoutParams());
+        Size previewSize = CameraUtil.selectBestPreviewSize(camera, viewSize);
+        Size pictureSize = CameraUtil.selectBestPictureSize(camera, previewSize);
         Camera.Parameters parameters = camera.getParameters();
-        parameters.setRotation(rotation);
+        parameters.setPreviewSize(previewSize.getWidth(), previewSize.getHeight());
+        parameters.setPictureSize(pictureSize.getWidth(), pictureSize.getHeight());
         camera.setParameters(parameters);
+    }
+
+    private void validateLayoutParamDimension(int dimen) {
+        if (    dimen == LayoutParams.FILL_PARENT ||
+                dimen == LayoutParams.MATCH_PARENT ||
+                dimen == LayoutParams.WRAP_CONTENT ||
+                dimen <= 0) {
+            throw new IllegalArgumentException("must be positive integer");
+        }
+    }
+
+    private void validateLayoutParams(LayoutParams layoutParams) {
+        validateLayoutParamDimension(layoutParams.width);
+        validateLayoutParamDimension(layoutParams.height);
     }
 
     @Override
@@ -68,75 +94,95 @@ public class CameraPreviewView extends SurfaceView implements SurfaceHolder.Call
         super.onDetachedFromWindow();
     }
 
+    @Override
+    public void setLayoutParams(LayoutParams params) {
+        validateLayoutParams(params);
+        super.setLayoutParams(params);
+    }
+
+    @Override
+    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        Size correctedPreviewSize = CameraUtil.getCorrectlyPreviewSize(getContext(), cameraId, camera);
+        textureView.measure(
+                MeasureSpec.makeMeasureSpec(correctedPreviewSize.getWidth(), MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(correctedPreviewSize.getHeight(), MeasureSpec.EXACTLY)
+        );
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+    }
+
+    @Override
+    protected void onLayout(boolean changed, int l, int t, int r, int b) {
+        Size correctedPreviewSize = CameraUtil.getCorrectlyPreviewSize(getContext(), cameraId, camera);
+
+        final int measuredWidth = getMeasuredWidth();
+        final int measuredHeight = getMeasuredHeight();
+
+        int leftOffset;
+        int rightOffset;
+        int topOffset;
+        int bottomOffset;
+
+        if (correctedPreviewSize.getWidth() > measuredWidth) {
+            rightOffset = (correctedPreviewSize.getWidth() - measuredWidth) / 2;
+            leftOffset = -rightOffset;
+        } else {
+            leftOffset = (measuredWidth - correctedPreviewSize.getWidth()) / 2;
+            rightOffset = -leftOffset;
+        }
+
+        if (correctedPreviewSize.getHeight() > measuredHeight) {
+            bottomOffset = (correctedPreviewSize.getHeight() - measuredHeight) / 2;
+            topOffset = -bottomOffset;
+        } else {
+            topOffset = (measuredHeight - correctedPreviewSize.getHeight()) / 2;
+            bottomOffset = -topOffset;
+        }
+
+        textureView.layout(
+                leftOffset,
+                topOffset,
+                measuredWidth + rightOffset,
+                measuredHeight + bottomOffset
+        );
+    }
+
     private void setPreviewOrientation() {
-        final int result = CameraUtil.calculateDisplayOrientation(getContext(), cameraId);
-        camera.setDisplayOrientation(result);
+        CameraUtil.setCameraDisplayOrientationDuringInitialization(getContext(), cameraId, camera);
     }
 
-    private void stopPreview() {
-        try {
-            isPreviewStarted = false;
-            camera.stopPreview();
-        } catch (Exception e) {
-            Log.w(TAG, e);
-        }
+    protected void stopPreview() {
+        camera.stopPreview();
     }
 
-    private void startPreviewIfReady(SurfaceHolder holder) {
-        if (isPreviewStarted || !isSurfaceCreated || !isMeasuredAtLeastOnce) {
-            return;
-        }
+    protected void startPreview(SurfaceTexture surfaceTexture) {
         try {
             setPreviewOrientation();
-            camera.setPreviewDisplay(holder);
+            camera.setPreviewTexture(surfaceTexture);
             camera.startPreview();
-            isPreviewStarted = true;
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
     }
 
     @Override
-    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-        isMeasuredAtLeastOnce = true;
-
-        MeasurementResult measurementResult = cameraPreviewMeasurer.measure(
-                requiredAspectRatios,
-                widthMeasureSpec,
-                heightMeasureSpec
-        );
-
-        Size previewSize = measurementResult.getPreviewSize();
-        Size pictureSize = pictureSizePicker.pickByPreviewSize(previewSize);
-
-        Camera.Parameters parameters = camera.getParameters();
-        parameters.setPreviewSize(previewSize.getWidth(), previewSize.getHeight());
-        parameters.setPictureSize(pictureSize.getWidth(), pictureSize.getHeight());
-        camera.setParameters(parameters);
-
-        setMeasuredDimension(
-                measurementResult.getMeasuredSize().getWidth(),
-                measurementResult.getMeasuredSize().getHeight()
-        );
-
-        startPreviewIfReady(getHolder());
+    public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
+        startPreview(surface);
     }
 
     @Override
-    public void surfaceCreated(SurfaceHolder holder) {
-        isSurfaceCreated = true;
-        startPreviewIfReady(holder);
+    public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {
+
     }
 
     @Override
-    public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
+    public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) {
         stopPreview();
-        startPreviewIfReady(holder);
+        return true;
     }
 
     @Override
-    public void surfaceDestroyed(SurfaceHolder holder) {
-        stopPreview();
+    public void onSurfaceTextureUpdated(SurfaceTexture surface) {
+        // no-op
     }
 
 }
