@@ -118,9 +118,7 @@ public class CameraActivity
                 displayMetrics.widthPixels,
                 displayMetrics.widthPixels
         );
-        cameraPreviewView.setLayoutParams(layoutParams);
-        cameraPreviewView.initialize();
-        cameraPreviewViewContainer.addView(cameraPreviewView);
+        cameraPreviewViewContainer.addView(cameraPreviewView, layoutParams);
     }
 
     private void removeCameraPreviewView() {

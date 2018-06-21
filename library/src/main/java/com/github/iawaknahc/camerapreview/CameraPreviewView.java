@@ -3,7 +3,6 @@ package com.github.iawaknahc.camerapreview;
 import android.content.Context;
 import android.graphics.SurfaceTexture;
 import android.hardware.Camera;
-import android.util.Log;
 import android.view.OrientationEventListener;
 import android.view.TextureView;
 import android.view.ViewGroup;
@@ -18,6 +17,8 @@ public class CameraPreviewView extends ViewGroup implements TextureView.SurfaceT
     private Camera camera;
     private OrientationEventListener orientationEventListener;
     private TextureView textureView;
+    private int mLastWidth = 0;
+    private int mLastHeight = 0;
 
     public CameraPreviewView(
             Context context,
@@ -26,12 +27,8 @@ public class CameraPreviewView extends ViewGroup implements TextureView.SurfaceT
         super(context);
         this.cameraId = cameraId;
         this.camera = camera;
-    }
-
-    public void initialize() {
         initializeOrientationEventListener();
         initializeTextureView();
-        initializeCameraPreviewSizeAndPictureSize();
     }
 
     private void initializeOrientationEventListener() {
@@ -53,33 +50,19 @@ public class CameraPreviewView extends ViewGroup implements TextureView.SurfaceT
         addView(textureView);
     }
 
-    private void initializeCameraPreviewSizeAndPictureSize() {
+    private void initializeCameraPreviewSizeAndPictureSize(int width, int height) {
         // set initial camera rotation and display orientation
         int currentDeviceOrientation = DeviceUtil.getDeviceCurrentOrientation(getContext());
         CameraUtil.handleOnOrientationChanged(cameraId, camera, currentDeviceOrientation);
 
         // set preview size
-        Size viewSize = Size.fromLayoutParams(getLayoutParams());
+        Size viewSize = new Size(width, height);
         Size previewSize = CameraUtil.selectBestPreviewSize(camera, viewSize);
         Size pictureSize = CameraUtil.selectBestPictureSize(camera, previewSize);
         Camera.Parameters parameters = camera.getParameters();
         parameters.setPreviewSize(previewSize.getWidth(), previewSize.getHeight());
         parameters.setPictureSize(pictureSize.getWidth(), pictureSize.getHeight());
         camera.setParameters(parameters);
-    }
-
-    private void validateLayoutParamDimension(int dimen) {
-        if (    dimen == LayoutParams.FILL_PARENT ||
-                dimen == LayoutParams.MATCH_PARENT ||
-                dimen == LayoutParams.WRAP_CONTENT ||
-                dimen <= 0) {
-            throw new IllegalArgumentException("must be positive integer");
-        }
-    }
-
-    private void validateLayoutParams(LayoutParams layoutParams) {
-        validateLayoutParamDimension(layoutParams.width);
-        validateLayoutParamDimension(layoutParams.height);
     }
 
     @Override
@@ -92,12 +75,6 @@ public class CameraPreviewView extends ViewGroup implements TextureView.SurfaceT
     protected void onDetachedFromWindow() {
         orientationEventListener.disable();
         super.onDetachedFromWindow();
-    }
-
-    @Override
-    public void setLayoutParams(LayoutParams params) {
-        validateLayoutParams(params);
-        super.setLayoutParams(params);
     }
 
     @Override
@@ -144,6 +121,14 @@ public class CameraPreviewView extends ViewGroup implements TextureView.SurfaceT
                 measuredWidth + rightOffset,
                 measuredHeight + bottomOffset
         );
+
+        final int width = r - l;
+        final int height = b - t;
+        if (width != mLastWidth || height != mLastHeight) {
+            this.mLastWidth = width;
+            this.mLastHeight = height;
+            this.initializeCameraPreviewSizeAndPictureSize(width, height);
+        }
     }
 
     private void setPreviewOrientation() {
